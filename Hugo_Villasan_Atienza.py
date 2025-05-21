@@ -4,6 +4,7 @@ from tensorflow.keras import Sequential
 from tensorflow.keras.layers import Flatten, Dense, Activation
 from tensorflow.keras.optimizers import Adam
 import numpy as np
+import matplotlib.pyplot as plt
 
 def cargar_y_preprocesar_cifar10():
     (X_train, y_train), (X_test, y_test) = cifar10.load_data()
@@ -19,7 +20,7 @@ def cargar_y_preprocesar_cifar10():
     
     return X_train, y_train, X_test, y_test
 
-def probar_MLP(input_shape, ocultas = [32], activ = ["sigmoid"], ep = 10, bs = 32, val_split = 0.1):
+def MLP(input_shape, ocultas = [32], activ = ["sigmoid"], ep = 10, bs = 32, val_split = 0.1):
     model = Sequential (name = "MLP_A")
     model.add(Flatten(input_shape = input_shape))
     
@@ -63,12 +64,15 @@ def probar_MLP(input_shape, ocultas = [32], activ = ["sigmoid"], ep = 10, bs = 3
 
 
 if __name__ == "__main__":
-    model, history = probar_MLP(
+     model, history = MLP(
         input_shape = (32, 32, 3), # tamaño de la imagen de CIFAR10
         ocultas = [32],
         activ = ["sigmoid"],
-        ep = 10,
+        ep = 5,
         bs = 32,
-        val_split = 0.1        
+        val_split = 0.1
     )
+    # Plot de las graficas de precision.
+
+
     
