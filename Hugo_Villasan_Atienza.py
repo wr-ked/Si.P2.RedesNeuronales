@@ -54,13 +54,14 @@ def MLP(input_shape, ocultas = [32], activ = ["sigmoid"], ep = 10, bs = 32, val_
         batch_size = bs,
         epochs = ep,
         validation_split = val_split,
+        callbacks = [cb],
         verbose = 1
     )
     
     # Evalua
     score = model.evaluate(X_test, y_test, verbose = 0)
     print ("Test accuracy:",score[1])
-    print ("Test loss:",score[1])
+    print ("Test loss:",score[0])
     
     return model, history
     
@@ -191,12 +192,12 @@ def dibuja_barras_accuracy_splits(splits, val_accs, test_accs, ep_optimo, repeti
 if __name__ == "__main__":
      
     # Tarea A. Definir, utilizar y evaluar un MLP con Keras
-    #MLP()
+    MLP()
     
     # Tarea B. Ajustar el valor de los parámetros epochs y validation_split
     
     #ajuste_epochs()
-    ajuste_validation_split(input_shape=(32, 32, 3), ep_optimo=20, repeticiones=5)
+    #ajuste_validation_split(input_shape=(32, 32, 3), ep_optimo=20, repeticiones=5)
 
     # Tarea C. Ajustar el valor del parámetro batch_size
     
