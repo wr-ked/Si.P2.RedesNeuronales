@@ -57,12 +57,14 @@ def MLP(input_shape, ocultas = 32, activ = "sigmoid", ep = 10, bs = 32, val_spli
     
     # EarlyStopping
     callbacks = []
+    # Para poder activarlo y desactivarlo a voluntad
     if early_stopping:
         cb = EarlyStopping(
-            monitor="val_loss",
+            monitor="val_accuracy",
             patience=3,
             min_delta=0.001,
-            restore_best_weights=True
+            restore_best_weights=True,
+            mode="max"  
         )
         callbacks = [cb]
     
@@ -151,12 +153,12 @@ def ajuste_validation_split(input_shape, ep_optimo, repeticiones = 5):
     # Representacion grafica
     dibuja_barras_accuracy_splits(splits, val_accs, test_accs, ep_optimo, repeticiones)
     
-def ajuste_ES(input_shape, ep_optimo = 20, val_split_optimo = 0.2, repeticiones = 5):
+def ajuste_ES(input_shape, ep_max = 50, val_split_optimo = 0.1, repeticiones = 5):
     
     configuraciones = [
-        {"patience": 2, "min_delta": 0.001},
-        {"patience": 3, "min_delta": 0.001},
-        {"patience": 5, "min_delta": 0.0005},
+        {"patience": 2, "min_delta": 0.001},  # Modelo exigente
+        {"patience": 3, "min_delta": 0.001},  # Modelo equilibrado
+        {"patience": 5, "min_delta": 0.0005}, # Modelo paciente
     ]
     
 
@@ -169,18 +171,29 @@ def ajuste_ES(input_shape, ep_optimo = 20, val_split_optimo = 0.2, repeticiones 
         acc_total = 0
         ep_total = 0
         
-        for i in range(repeticiones):
+        callback_es = EarlyStopping(
+            monitor="val_accuracy",
+            patience=cfg["patience"],
+            min_delta=cfg["min_delta"],
+            restore_best_weights=True,
+            mode = "max"
+            
+        )
+
+        
+        for _ in range(repeticiones):
             model, history, X_test, y_test = MLP(
                 input_shape=input_shape,
                 ocultas=[32],
                 activ=["sigmoid"],
-                ep=ep_optimo,
+                ep=ep_max,
                 bs=32,
-                val_split=val_split_optimo
+                val_split=val_split_optimo,
+                early_stopping=[callback_es]
                 )
             
             # Número de épocas reales entrenadas
-            ep_entrenadas = len(history.history["validation"])
+            ep_entrenadas = len(history.history["val_loss"])
             ep_total += ep_entrenadas
             
             # Evalúa en test
@@ -189,9 +202,11 @@ def ajuste_ES(input_shape, ep_optimo = 20, val_split_optimo = 0.2, repeticiones 
             
         medias_accuracy.append(acc_total / repeticiones)
         medias_epocas.append(ep_total / repeticiones)
+        
+    dibuja_resultados_ES(configuraciones, medias_epocas, medias_accuracy, ep_max, repeticiones, nombre_archivo="ajuste_ES")
 
 
-def ajuste_batch_size(input_shape, ep_optimo=20, val_split_optimo=0.1, repes=5):
+def ajuste_batch_size(input_shape, ep_max=20, val_split_optimo=0.1, repes=5):
     batch_sizes = [16, 32, 64, 128]
     
     medias_accuracy = []
@@ -205,16 +220,17 @@ def ajuste_batch_size(input_shape, ep_optimo=20, val_split_optimo=0.1, repes=5):
         all_y_preds = []
         all_y_trues = []
         
-        for i in range(repes):
+        for _ in range(repes):
             print(f"  → Repetición {i+1}/{repes}")
             start_time = time.time() # Medimos el tiempo que tarda el modelo en entrenarse
             model, _, X_test, y_test  = MLP(
                 input_shape=input_shape,
                 ocultas=[32],
                 activ=["sigmoid"],
-                ep=ep_optimo,
+                ep=ep_max,
                 bs=bs,
-                val_split=val_split_optimo
+                val_split=val_split_optimo,
+                early_stopping = True
                 )
             end_time = time.time()
             tiempo_total += (end_time - start_time)
@@ -241,10 +257,74 @@ def ajuste_batch_size(input_shape, ep_optimo=20, val_split_optimo=0.1, repes=5):
     muestra_matrices_confusion(batch_sizes, confusion_matrices)
     
     
-#def ajuste_act_function(input_shape, ep_optimo=20, val_split_optimo=0.1, bs_optimo=32, repes=5):
+def ajuste_act_function(input_shape, ep_optimo=20, val_split_optimo=0.1, bs_optimo=64, repeticiones=5):
+    funciones = ["sigmoid", "relu", "tanh", "mish"]  # activaciones a comparar
+    tiempos_medios = []
+    accuracies_medias = []
+
+    for activ in funciones:
+        print(f"\n--- Probar activación: {activ} ---")
+        tiempo_total = 0
+        acc_total = 0
+
+        for _ in range(repeticiones):
+            start = time.time()
+            
+            model, history, X_test, y_test = MLP(
+                input_shape=input_shape,
+                ocultas=[32],
+                activ=[activ],
+                ep=ep_optimo,
+                bs=bs_optimo,
+                val_split=val_split_optimo,
+                early_stopping = True
+            )
+
+            _, acc_test = model.evaluate(X_test, y_test, verbose=0)
+            end = time.time()
+
+            tiempo_total += (end - start)
+            acc_total += acc_test
+
+        tiempos_medios.append(tiempo_total / repeticiones)
+        accuracies_medias.append(acc_total / repeticiones)
+
+    dibuja_activaciones_resultados(funciones, tiempos_medios, accuracies_medias, ep_optimo, repeticiones)
     
-# def ajuste_No_capas():
-#     
+    
+def ajuste_No_capas(input_shape, ep_optimo=20, val_split_optimo=0.2, bs_optimo=64, repeticiones=5):
+    num_neuronas_lista = [16, 32, 64, 128, 256, 512]  # puedes añadir más si quieres
+    tiempos_medios = []
+    accuracies_medias = []
+
+    for n in num_neuronas_lista:
+        print(f"\n--- Probar con {n} neuronas ---")
+        tiempo_total = 0
+        acc_total = 0
+
+        for _ in range(repeticiones):
+            start = time.time()
+
+            model, history, X_test, y_test = MLP(
+                input_shape=input_shape,
+                ocultas=[n],
+                activ=["relu"],
+                ep=ep_optimo,
+                bs=bs_optimo,
+                val_split=val_split_optimo,
+                early_stopping = True
+            )
+
+            _, acc_test = model.evaluate(X_test, y_test, verbose=0)
+            end = time.time()
+
+            tiempo_total += (end - start)
+            acc_total += acc_test
+
+        tiempos_medios.append(tiempo_total / repeticiones)
+        accuracies_medias.append(acc_total / repeticiones)
+        
+    dibuja_NoNeuronas_resultados(num_neuronas_lista, tiempos_medios, accuracies_medias, ep_optimo, repeticiones)
 # def CNN():
     
             
@@ -303,7 +383,41 @@ def dibuja_barras_accuracy_splits(splits, val_accs, test_accs, ep_optimo, repeti
     ruta = f"graficas/{nombre}.png"
     plt.savefig(ruta)
     print(f"[✔] Gráfica de barras guardada en {ruta}")
-    plt.show()    
+    plt.show()
+    
+def dibuja_resultados_ES(configuraciones, medias_epocas, medias_accuracy, ep_optimo, repes, nombre_archivo="ajuste_ES"):
+
+    x = np.arange(len(configuraciones))
+
+    fig, ax1 = plt.subplots(figsize=(9, 5))
+
+    color_epocas = 'skyblue'
+    color_acc = 'salmon'
+
+    # Etiquetas para eje x tipo: patience=2, min_delta=0.001
+    etiquetas = [f"p={cfg['patience']}\nmd={cfg['min_delta']}" for cfg in configuraciones]
+
+    ax1.set_xlabel('Configuraciones EarlyStopping')
+    ax1.set_ylabel('Épocas entrenadas (media)', color=color_epocas)
+    ax1.bar(x - 0.2, medias_epocas, width=0.4, color=color_epocas, label='Épocas entrenadas')
+    ax1.tick_params(axis='y', labelcolor=color_epocas)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(etiquetas)
+    ax1.grid(axis='y')
+
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('Test Accuracy (media)', color=color_acc)
+    ax2.bar(x + 0.2, medias_accuracy, width=0.4, color=color_acc, label='Test Accuracy')
+    ax2.tick_params(axis='y', labelcolor=color_acc)
+
+    plt.title(f"Ajuste EarlyStopping (ép. máx={ep_optimo}, {repes} repeticiones)")
+
+    os.makedirs("graficas", exist_ok=True)
+    ruta = f"graficas/{nombre_archivo}.png"
+    plt.savefig(ruta)
+    print(f"[✔] Gráfica guardada en {ruta}")
+    plt.show()
+    plt.close()
     
 def dibuja_batch_size_resultados(batch_sizes, medias_tiempo, medias_accuracy, ep_optimo, repes, nombre_archivo="ajuste_batch_size"):
 
@@ -350,6 +464,72 @@ def muestra_matrices_confusion(batch_sizes, confusion_matrices):
         os.makedirs("graficas", exist_ok=True)
         plt.savefig(f"graficas/conf_matrix_bs_{bs}.png")
         plt.show()
+        
+        
+def dibuja_activaciones_resultados(activaciones, medias_tiempo, medias_accuracy, ep_optimo, repes, nombre_archivo="ajuste_activacion"):
+    x = np.arange(len(activaciones))
+
+    fig, ax1 = plt.subplots(figsize=(9, 5))
+
+    color_tiempo = 'skyblue'
+    color_acc = 'salmon'
+
+    ax1.set_xlabel('Función de activación')
+    ax1.set_ylabel('Tiempo (s)', color=color_tiempo)
+    ax1.bar(x - 0.2, medias_tiempo, width=0.4, color=color_tiempo, label='Tiempo (s)')
+    ax1.tick_params(axis='y', labelcolor=color_tiempo)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(activaciones)
+    ax1.grid(axis='y')
+
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('Test Accuracy', color=color_acc)
+    ax2.bar(x + 0.2, medias_accuracy, width=0.4, color=color_acc, label='Test Accuracy')
+    ax2.tick_params(axis='y', labelcolor=color_acc)
+
+    plt.title(f"Ajuste de función de activación (ép. máx={ep_optimo}, {repes} repeticiones)")
+
+    os.makedirs("graficas", exist_ok=True)
+    ruta = f"graficas/{nombre_archivo}.png"
+    plt.savefig(ruta)
+    print(f"[✔] Gráfica guardada en {ruta}")
+    plt.show()
+    plt.close()
+def dibuja_NoNeuronas_resultados(activaciones, medias_tiempo, medias_accuracy, ep_optimo, repes, nombre_archivo="ajuste_NoNeuronas"):
+    x = np.arange(len(activaciones))
+
+    fig, ax1 = plt.subplots(figsize=(9, 5))
+
+    color_tiempo = 'skyblue'
+    color_acc = 'salmon'
+
+    ax1.set_xlabel('No Neuronas')
+    ax1.set_ylabel('Tiempo (s)', color=color_tiempo)
+    ax1.bar(x - 0.2, medias_tiempo, width=0.4, color=color_tiempo, label='Tiempo (s)')
+    ax1.tick_params(axis='y', labelcolor=color_tiempo)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(activaciones)
+    ax1.grid(axis='y')
+
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('Test Accuracy', color=color_acc)
+    ax2.bar(x + 0.2, medias_accuracy, width=0.4, color=color_acc, label='Test Accuracy')
+    ax2.tick_params(axis='y', labelcolor=color_acc)
+
+    plt.title(f"Ajuste de Numero de Neuronas (ép. máx={ep_optimo}, {repes} repeticiones)")
+
+    os.makedirs("graficas", exist_ok=True)
+    ruta = f"graficas/{nombre_archivo}.png"
+    plt.savefig(ruta)
+    print(f"[✔] Gráfica guardada en {ruta}")
+    plt.show()
+    plt.close()
+    
+    
+    
+    
+#def cnn_basica(input_shape):
+
 
 
 
@@ -362,14 +542,19 @@ if __name__ == "__main__":
     
     #ajuste_epochs()
     #ajuste_validation_split(input_shape=(32, 32, 3), ep_optimo=20, repeticiones=5)
-
+    #ajuste_ES(input_shape=(32, 32, 3), ep_max = 50, val_split_optimo = 0.1, repeticiones = 5)
+        
     # Tarea C. Ajustar el valor del parámetro batch_size
-    ajuste_batch_size(input_shape=(32, 32, 3), ep_optimo=20, val_split_optimo=0.2, repes=5)
-
+    #ajuste_batch_size(input_shape=(32, 32, 3), ep_optimo=20, val_split_optimo=0.2, repes=5)
     
     # Tarea D. Probar diferentes funciones de activación
+    #ajuste_act_function(input_shape=(32, 32, 3), ep_optimo=20, val_split_optimo=0.1, bs_optimo=64, repeticiones=5)
     
     # Tarea E. Ajustar el número de neuronas por capa
+    ajuste_No_capas(input_shape=(32, 32, 3), ep_optimo=20, val_split_optimo=0.2, bs_optimo=64, repeticiones=5)
     
     # Tarea F. Optimizar un MLP de dos o más capas
+    
+    
+    #Tarea G. CNN Basico
     
