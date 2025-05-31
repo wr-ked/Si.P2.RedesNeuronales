@@ -3,7 +3,7 @@
 from tensorflow.keras.datasets import cifar10
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Flatten, Dense, Activation
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Activation
 from tensorflow.keras.optimizers import Adam
 from keras.callbacks import EarlyStopping
 import numpy as np
@@ -29,7 +29,7 @@ def cargar_y_preprocesar_cifar10():
     
     return X_train, y_train, X_test, y_test
 
-def MLP(input_shape, ocultas = 32, activ = "sigmoid", ep = 10, bs = 32, val_split = 0.1, early_stopping=False):
+def MLP(input_shape, ocultas = 32, activ = "sigmoid", ep = 10, bs = 32, val_split = 0.1):
     model = Sequential (name = "MLP")
     model.add(Flatten(input_shape = input_shape))
     
@@ -56,17 +56,16 @@ def MLP(input_shape, ocultas = 32, activ = "sigmoid", ep = 10, bs = 32, val_spli
     X_train, y_train, X_test, y_test = cargar_y_preprocesar_cifar10()
     
     # EarlyStopping
-    callbacks = []
-    # Para poder activarlo y desactivarlo a voluntad
-    if early_stopping:
-        cb = EarlyStopping(
-            monitor="val_accuracy",
-            patience=3,
-            min_delta=0.001,
-            restore_best_weights=True,
-            mode="max"  
-        )
-        callbacks = [cb]
+    cb = EarlyStopping(
+        monitor="val_accuracy",
+        patience=5,
+        min_delta=0.001,
+        restore_best_weights=True,
+        mode="max"  
+    )
+    callbacks = [cb]
+
+
     
     # Entrena
     history = model.fit(
@@ -220,7 +219,7 @@ def ajuste_batch_size(input_shape, ep_max=20, val_split_optimo=0.1, repes=5):
         all_y_preds = []
         all_y_trues = []
         
-        for _ in range(repes):
+        for i in range(repes):
             print(f"  → Repetición {i+1}/{repes}")
             start_time = time.time() # Medimos el tiempo que tarda el modelo en entrenarse
             model, _, X_test, y_test  = MLP(
@@ -253,7 +252,7 @@ def ajuste_batch_size(input_shape, ep_max=20, val_split_optimo=0.1, repes=5):
         cm = confusion_matrix(all_y_trues, all_y_preds)
         confusion_matrices[bs] = cm
         
-    dibuja_batch_size_resultados(batch_sizes, medias_tiempo, medias_accuracy, ep_optimo, repes)
+    dibuja_batch_size_resultados(batch_sizes, medias_tiempo, medias_accuracy, ep_max, repes)
     muestra_matrices_confusion(batch_sizes, confusion_matrices)
     
     
@@ -267,7 +266,7 @@ def ajuste_act_function(input_shape, ep_optimo=20, val_split_optimo=0.1, bs_opti
         tiempo_total = 0
         acc_total = 0
 
-        for _ in range(repeticiones):
+        for i in range(repeticiones):
             start = time.time()
             
             model, history, X_test, y_test = MLP(
@@ -302,7 +301,7 @@ def ajuste_No_capas(input_shape, ep_optimo=20, val_split_optimo=0.2, bs_optimo=6
         tiempo_total = 0
         acc_total = 0
 
-        for _ in range(repeticiones):
+        for i in range(repeticiones):
             start = time.time()
 
             model, history, X_test, y_test = MLP(
@@ -528,18 +527,188 @@ def dibuja_NoNeuronas_resultados(activaciones, medias_tiempo, medias_accuracy, e
     
     
     
-#def cnn_basica(input_shape):
+def cnn_basica(batch_size = 128, epochs = 15, val_split=0.1):
+    # Carga los datos
+    X_train, y_train, X_test, y_test = cargar_y_preprocesar_cifar10()
+    
+    model = Sequential([
+        Conv2D(16, (3, 3), activation='relu', input_shape=(32, 32, 3)),
+        Conv2D(32, (3, 3), activation='relu'),
+        Flatten(),
+        Dense(10, activation='softmax')
+    ])
+    
+    model.compile(
+        loss="categorical_crossentropy",
+        optimizer=Adam(),
+        metrics=["accuracy"]
+        )
+    
+    model.fit(X_train,
+              y_train,
+              batch_size=batch_size,
+              epochs=epochs,
+              validation_split=val_split
+              )
+    # Evaluar
+    score = model.evaluate(X_test, y_test, verbose=0)
+    print("Test accuracy:", score[1])
+    print("Test loss:", score[0])
+
+    return model, score[1]
+
+        
+def cnn_con_maxpooling(filtro = 3, stride=1, batch_size=128, epochs=10, val_split=0.1):
+    # Carga los datos
+    X_train, y_train, X_test, y_test = cargar_y_preprocesar_cifar10()
+    
+    # Definir el modelo
+    model = Sequential([
+        Conv2D(16, (filtro, filtro), strides=stride, activation='relu', input_shape=(32, 32, 3)),
+        MaxPooling2D(pool_size=(2, 2)),
+        Conv2D(32, (filtro, filtro), strides=stride, activation='relu'),
+        MaxPooling2D(pool_size=(2, 2)),
+        Flatten(),
+        Dense(10, activation='softmax')
+    ])
+
+    # Compilar el modelo
+    model.compile(
+        loss="categorical_crossentropy",
+        optimizer=Adam(),
+        metrics=["accuracy"]
+    )
+    
+    
+    # Entrena el modelo
+    model.fit(X_train,
+              y_train,
+              batch_size=batch_size,
+              epochs=epochs,
+              validation_split=val_split,
+              verbose=1)
+    
+    # Evalúa después de entrenar
+    score = model.evaluate(X_test, y_test, verbose=0)
+    
+    print(f"Test accuracy con filtro {filtro}: {score[1]:.4f}")
+    print(f"Test loss con filtro {filtro}: {score[0]:.4f}")
+    return model, score[1]
 
 
+def ajuste_tamano_filtro(filtros=[3,5,7], batch_size=128, epochs=10, val_split=0.1, repes=3):
+    tiempos_medios = []
+    accuracies_medias = []
 
+    for filtro in filtros:
+        tiempos = []
+        accuracies = []
+
+        for _ in range(repes):
+            start = time.time()
+            model, acc = cnn_con_maxpooling(filtro=filtro, batch_size=batch_size, epochs=epochs, val_split=val_split)
+            elapsed = time.time() - start
+
+            tiempos.append(elapsed)
+            accuracies.append(acc)
+
+        tiempos_medios.append(np.mean(tiempos))
+        accuracies_medias.append(np.mean(accuracies))
+
+    dibuja_tamano_filtro_resultados(filtros, tiempos_medios, accuracies_medias, ep_optimo=epochs, repes=repes)
+    return filtros, tiempos_medios, accuracies_medias
+
+    
+    
+def ajuste_stride(strides=[1, 2, 3], batch_size=128, epochs=20, val_split=0.1, repes=5):
+    tiempos_medios = []
+    accuracies_medias = []
+
+    for stride in strides:
+        tiempo_total = 0
+        acc_total = 0
+
+        for _ in range(repes):
+            start = time.time()
+            model, acc_test = cnn_con_maxpooling(stride=stride, batch_size=batch_size, epochs=epochs, val_split=val_split)
+            tiempo_total += time.time() - start
+            acc_total += acc_test
+
+        tiempos_medios.append(tiempo_total / repes)
+        accuracies_medias.append(acc_total / repes)
+
+    # Usa la función que graficaba antes, ajusta parámetros:
+    dibuja_stride_resultados(strides, tiempos_medios, accuracies_medias, epochs, repes)
+    
+    
+    
+def dibuja_stride_resultados(strides, medias_tiempo, medias_accuracy, ep_optimo, repes, nombre_archivo="ajuste_stride"):
+    x = np.arange(len(strides))
+
+    fig, ax1 = plt.subplots(figsize=(9, 5))
+
+    color_tiempo = 'skyblue'
+    color_acc = 'salmon'
+
+    ax1.set_xlabel('Stride')
+    ax1.set_ylabel('Tiempo (s)', color=color_tiempo)
+    ax1.bar(x - 0.2, medias_tiempo, width=0.4, color=color_tiempo, label='Tiempo (s)')
+    ax1.tick_params(axis='y', labelcolor=color_tiempo)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(strides)
+    ax1.grid(axis='y')
+
+    ax2 = ax1.twinx() 
+    ax2.set_ylabel('Test Accuracy', color=color_acc)
+    ax2.bar(x + 0.2, medias_accuracy, width=0.4, color=color_acc, label='Test Accuracy')
+    ax2.tick_params(axis='y', labelcolor=color_acc)
+
+    plt.title(f"Ajuste de stride (ép. máx={ep_optimo}, {repes} repeticiones)")
+
+    # Guardar y mostrar
+    os.makedirs("graficas", exist_ok=True)
+    ruta = f"graficas/{nombre_archivo}.png"
+    plt.savefig(ruta)
+    print(f"[✔] Gráfica guardada en {ruta}")
+    plt.show()
+    plt.close()
+
+def dibuja_tamano_filtro_resultados(filtros, medias_tiempo, medias_accuracy, ep_optimo, repes, nombre_archivo="ajuste_tamano_filtro"):
+    x = np.arange(len(filtros))
+
+    fig, ax1 = plt.subplots(figsize=(9, 5))
+
+    color_tiempo = 'skyblue'
+    color_acc = 'salmon'
+
+    ax1.set_xlabel('Tamaño filtro (kernel size)')
+    ax1.set_ylabel('Tiempo (s)', color=color_tiempo)
+    ax1.bar(x - 0.2, medias_tiempo, width=0.4, color=color_tiempo, label='Tiempo (s)')
+    ax1.tick_params(axis='y', labelcolor=color_tiempo)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(filtros)
+    ax1.grid(axis='y')
+
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('Test Accuracy', color=color_acc)
+    ax2.bar(x + 0.2, medias_accuracy, width=0.4, color=color_acc, label='Test Accuracy')
+    ax2.tick_params(axis='y', labelcolor=color_acc)
+
+    plt.title(f"Ajuste de tamaño de filtro (ép. máx={ep_optimo}, {repes} repeticiones)")
+
+    os.makedirs("graficas", exist_ok=True)
+    ruta = f"graficas/{nombre_archivo}.png"
+    plt.savefig(ruta)
+    print(f"[✔] Gráfica guardada en {ruta}")
+    plt.show()
+    plt.close()
 
 if __name__ == "__main__":
      
     # Tarea A. Definir, utilizar y evaluar un MLP con Keras
-    #MLP()
+    #MLP((32,32,3), ocultas = 32, activ = "sigmoid", ep = 10, bs = 32, val_split = 0.1, early_stopping=False)
     
     # Tarea B. Ajustar el valor de los parámetros epochs y validation_split
-    
     #ajuste_epochs()
     #ajuste_validation_split(input_shape=(32, 32, 3), ep_optimo=20, repeticiones=5)
     #ajuste_ES(input_shape=(32, 32, 3), ep_max = 50, val_split_optimo = 0.1, repeticiones = 5)
@@ -551,10 +720,15 @@ if __name__ == "__main__":
     #ajuste_act_function(input_shape=(32, 32, 3), ep_optimo=20, val_split_optimo=0.1, bs_optimo=64, repeticiones=5)
     
     # Tarea E. Ajustar el número de neuronas por capa
-    ajuste_No_capas(input_shape=(32, 32, 3), ep_optimo=20, val_split_optimo=0.2, bs_optimo=64, repeticiones=5)
+    #ajuste_No_capas(input_shape=(32, 32, 3), ep_optimo=20, val_split_optimo=0.2, bs_optimo=64, repeticiones=5)
     
     # Tarea F. Optimizar un MLP de dos o más capas
     
     
     #Tarea G. CNN Basico
+    #cnn_basica(batch_size = 128, epochs = 15, val_split=0.1)
+    #cnn_con_maxpooling(batch_size = 128, epochs = 15, val_split=0.1)
     
+    # Tarea H. Optimizar el tamaño y el salto de los filtros de convolución.
+    #ajuste_tamano_filtro(filtros=[3,5,7], batch_size=128, epochs=10, val_split=0.1, repes=5)
+    ajuste_stride(strides=[1,2], batch_size=128, epochs=10, val_split=0.1, repes=5)
